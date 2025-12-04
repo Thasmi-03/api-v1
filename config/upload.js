@@ -5,9 +5,8 @@ import cloudinary from "./cloudinary.js";
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: "fitflow",            // cloudinary folder
-    allowed_formats: ["jpg","png","jpeg","webp"],
-    transformation: [{ width: 1000, crop: "limit" }] // optional
+    folder: "fitflow",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
   }
 });
 
