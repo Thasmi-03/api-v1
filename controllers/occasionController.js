@@ -154,85 +154,75 @@ export const getOccasionSuggestions = async (req, res) => {
     const styler = await Styler.findById(userId);
     const userGender = styler?.gender;
 
-    // Import PartnerCloth and Partner models
-    const { PartnerCloth } = await import("../models/partnerClothes.js");
-    const { Partner } = await import("../models/partner.js");
+    // Partner imports removed
 
-    // Build query to find matching clothes from Partner inventory
-    const query = {
-      visibility: "public",
-      occasion: occasion.type
-    };
+    // Partner query removed
 
-    // Gender filter
-    if (userGender && userGender !== 'other') {
-      query.$or = [
-        { gender: userGender },
-        { gender: 'unisex' },
-        { gender: { $exists: false } }
-      ];
-    }
-
-    // Skin tone filter (if user has one)
-    if (styler?.skinTone) {
-      // PartnerCloth has 'suitableSkinTones' as an array
-      const skinToneQuery = {
-        $or: [
-          { suitableSkinTones: styler.skinTone },
-          { suitableSkinTones: { $size: 0 } },
-          { suitableSkinTones: { $exists: false } }
-        ]
-      };
-      
-      if (query.$or) {
-        // If we already have an $or for gender, we need to use $and to combine them
-        query.$and = [
-          { $or: query.$or },
-          skinToneQuery
-        ];
-        delete query.$or;
-      } else {
-        Object.assign(query, skinToneQuery);
-      }
-    }
-
-    // Find matching clothes from partner inventory
-    const suggestions = await PartnerCloth.find(query)
-      .sort({ createdAt: -1 })
-      .limit(20);
-
-    // Get unique partner IDs
-    const partnerIds = [...new Set(suggestions.map(cloth => cloth.ownerId))];
+    // Find matching clothes from user's own wardrobe
+    console.log("=== DEBUG: getOccasionSuggestions ===");
+    console.log("userId:", userId);
+    console.log("occasion.type:", occasion.type);
     
-    // Fetch partner details
-    const partners = await Partner.find({ _id: { $in: partnerIds } });
-    const partnerMap = {};
-    partners.forEach(partner => {
-      partnerMap[partner._id.toString()] = partner;
-    });
+    // Get all clothes for this user to debug
+    const allUserClothes = await StylerClothes.find({ ownerId: userId });
+    console.log("Total clothes for user:", allUserClothes.length);
+    console.log("Clothes occasions:", allUserClothes.map(c => ({ name: c.name, occasion: c.occasion })));
+    
+    // Determine target occasion type for matching
+    let targetOccasion = occasion.type ? occasion.type.trim().toLowerCase() : 'other';
+    if (targetOccasion === 'other') {
+      targetOccasion = 'casual'; // Fallback for 'other'
+    }
 
-    // Format suggestions with partner details
-    const formattedSuggestions = suggestions.map(cloth => {
-      const partner = partnerMap[cloth.ownerId?.toString()];
-      return {
-        _id: cloth._id,
-        name: cloth.name,
-        category: cloth.category,
-        color: cloth.color,
-        image: cloth.image,
-        gender: cloth.gender,
-        price: cloth.price,
-        brand: cloth.brand,
-        matchReason: `Matches ${occasion.type}${styler?.skinTone ? ` & suitable for ${styler.skinTone} skin tone` : ''}`,
-        partner: partner ? {
-          _id: partner._id,
-          name: partner.name,
-          location: partner.location || 'Location not specified',
-          phone: partner.phone || 'N/A',
-          email: partner.email
-        } : null
-      };
-    });
+    console.log(`Searching for clothes with occasion: "${targetOccasion}"`);
+    console.log(`Regex used: ${targetOccasion} (case-insensitive, partial match)`);
+
+    const query = {
+      ownerId: userId,
+      occasion: { $regex: new RegExp(targetOccasion, 'i') }
+    };
+    console.log("Query:", JSON.stringify(query, null, 2));
+
+    const stylerSuggestions = await StylerClothes.find(query).sort({ createdAt: -1 });
+    
+    console.log(`Found ${stylerSuggestions.length} matches.`);
+    if (stylerSuggestions.length > 0) {
+      console.log("First match:", stylerSuggestions[0].name, "| Occasion:", stylerSuggestions[0].occasion);
+    } else {
+      // Debug: Check if ANY clothes exist for this user with this occasion (exact match)
+      const exactMatches = await StylerClothes.countDocuments({ ownerId: userId, occasion: targetOccasion });
+      console.log(`Exact matches check: ${exactMatches}`);
+      
+      // Debug: List all occasions for this user to see what's there
+      const allOccasions = await StylerClothes.distinct('occasion', { ownerId: userId });
+      console.log("Available occasions in wardrobe:", allOccasions);
+    }
+    
+    console.log("Found styler suggestions:", stylerSuggestions.length);
+
+    // Partner details fetching removed
+
+    // Format Styler suggestions
+    const formattedStylerSuggestions = stylerSuggestions.map(cloth => ({
+      _id: cloth._id,
+      name: cloth.name,
+      category: cloth.category,
+      color: cloth.color,
+      image: cloth.image,
+      gender: cloth.gender,
+      price: cloth.price,
+      brand: "My Wardrobe", // Indicating it's from user's wardrobe
+      matchReason: `From your wardrobe for ${occasion.type}`,
+      partner: null // No partner details for own clothes
+    }));
+
+    // Partner suggestions formatting removed
+
+    // Combine suggestions (only styler suggestions now)
+    const formattedSuggestions = formattedStylerSuggestions;
+    
+    console.log("=== DEBUG: Final Response ===");
+    console.log("Styler suggestions count:", formattedStylerSuggestions.length);
 
     res.status(200).json({ 
       suggestions: formattedSuggestions,
