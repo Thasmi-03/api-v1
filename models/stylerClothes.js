@@ -7,7 +7,13 @@ const StylerClothesSchema = new Schema(
     name: { type: String, required: true, trim: true },
     image: { type: String, trim: true },
     color: { type: String, required: true, trim: true },
-    category: { type: String, required: true, trim: true },
+    category: { 
+      type: String, 
+      required: true, 
+      enum: ['dress', 'shirt', 'pants', 'jacket', 'skirt', 'top', 'shorts', 
+             'suit', 'blazer', 'sweater', 'coat', 'tshirt', 'frock'],
+      trim: true 
+    },
 
     skinTone: { 
       type: String, 
@@ -27,12 +33,10 @@ const StylerClothesSchema = new Schema(
 
     usageCount: { type: Number, default: 0, min: 0 },
 
-    occasion: {
+    occasion: [{
       type: String,
-      enum: ["casual", "formal", "business", "party", "wedding", "sports", "beach"],
-      default: "casual",
-      trim: true
-    },
+      enum: ["casual", "formal", "business", "party", "wedding", "sports", "beach"]
+    }],
 
     note: { type: String, trim: true, default: "" },
 
@@ -51,6 +55,11 @@ const StylerClothesSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// Add validation for occasion array (1-4 items)
+StylerClothesSchema.path('occasion').validate(function(value) {
+  return value && value.length >= 1 && value.length <= 4;
+}, 'Please select between 1 and 4 occasions');
 
 StylerClothesSchema.index({ ownerId: 1, category: 1 });
 
