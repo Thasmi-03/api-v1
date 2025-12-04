@@ -62,7 +62,7 @@ export const createCloth = async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "Unauthorized" });
     if (req.user.role !== "partner") return res.status(403).json({ error: "Partner role required" });
 
-    const { name, color, category, brand, price, image, visibility } = req.body;
+    const { name, color, category, brand, price, image, visibility, occasion, gender, suitableSkinTones, size, description, stock } = req.body;
     if (!name || !color || !category || !brand) return res.status(400).json({ error: "Missing required fields (name, color, category, brand)" });
 
     const cloth = new PartnerCloth({
@@ -75,6 +75,13 @@ export const createCloth = async (req, res) => {
       ownerType: "partner",
       ownerId: req.user._id,
       visibility: visibility || "public",
+      // These fields are critical for suggestions!
+      occasion: occasion || "casual",
+      gender: gender || "unisex",
+      suitableSkinTones: suitableSkinTones || [],
+      size: size || "",
+      description: description || "",
+      stock: stock || 0,
     });
 
     const saved = await cloth.save();
@@ -204,25 +211,141 @@ export const getMyCloths = async (req, res) => {
   }
 };
 
-/** Get suggestions for styler */
+/** Get smart suggestions for styler based on their profile (skin tone, gender, occasions) */
 export const getSuggestions = async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthorized" });
     if (req.user.role !== "styler") return res.status(403).json({ error: "Styler role required" });
 
     const { page, limit, skip } = parsePagination(req.query);
-    const sort = parseSort(req.query.sort);
+    const { occasion, skinTone, gender } = req.query;
 
-    const filter = buildFilterFromQuery(req.query, { visibility: "public", ownerType: "partner" });
+    // Import User model to get user profile details
+    const { User } = await import("../models/user.js");
+    const { Occasion } = await import("../models/occasion.js");
+    const { Partner } = await import("../models/partner.js");
 
+    // Get the user's profile data
+    const userProfile = await User.findById(req.user._id);
+    
+    // Get user's gender and skin tone from profile or query params
+    const userGender = gender || userProfile?.gender;
+    const userSkinTone = skinTone || userProfile?.skinTone;
+    
+    // Get user's occasions to understand their style needs
+    const userOccasions = await Occasion.find({ userId: req.user._id }).select('type');
+    const occasionTypes = [...new Set(userOccasions.map(o => o.type))];
+
+    // Build the smart filter
+    const baseFilter = {
+      visibility: "public",
+      ownerType: "partner"
+    };
+
+    // Add filters based on user profile and query params
+    const conditions = [baseFilter];
+
+    // Filter by occasion if specified or use user's occasions
+    const targetOccasion = occasion || (occasionTypes.length > 0 ? occasionTypes[0] : null);
+    if (targetOccasion) {
+      conditions.push({ occasion: targetOccasion });
+    }
+
+    // Filter by gender
+    if (userGender && userGender !== 'other') {
+      conditions.push({
+        $or: [
+          { gender: userGender },
+          { gender: 'unisex' },
+          { gender: { $exists: false } }
+        ]
+      });
+    }
+
+    // Filter by skin tone - match suitableSkinTones array or empty/missing array
+    if (userSkinTone) {
+      conditions.push({
+        $or: [
+          { suitableSkinTones: userSkinTone },
+          { suitableSkinTones: { $size: 0 } },
+          { suitableSkinTones: { $exists: false } }
+        ]
+      });
+    }
+
+    const filter = conditions.length > 1 ? { $and: conditions } : baseFilter;
+
+    console.log("=== Smart Suggestions Query ===");
+    console.log("User:", req.user._id);
+    console.log("Gender:", userGender);
+    console.log("Skin Tone:", userSkinTone);
+    console.log("Target Occasion:", targetOccasion);
+    console.log("User's Occasion Types:", occasionTypes);
+    console.log("Filter:", JSON.stringify(filter, null, 2));
+
+    // Get matching clothes
     const [total, suggestions] = await Promise.all([
       PartnerCloth.countDocuments(filter),
-      PartnerCloth.find(filter).sort(sort).skip(skip).limit(limit),
+      PartnerCloth.find(filter)
+        .populate('ownerId', 'name location phone email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
     ]);
 
+    console.log("Found suggestions:", total);
+
+    // Format suggestions with partner details and match reason
+    const formattedSuggestions = suggestions.map(cloth => {
+      const partner = cloth.ownerId;
+      const matchReasons = [];
+      
+      if (targetOccasion && cloth.occasion === targetOccasion) {
+        matchReasons.push(`Perfect for ${targetOccasion}`);
+      }
+      if (userGender && (cloth.gender === userGender || cloth.gender === 'unisex')) {
+        matchReasons.push(`Fits ${userGender}`);
+      }
+      if (userSkinTone && cloth.suitableSkinTones?.includes(userSkinTone)) {
+        matchReasons.push(`Suits ${userSkinTone} skin tone`);
+      }
+
+      return {
+        _id: cloth._id,
+        name: cloth.name,
+        category: cloth.category,
+        color: cloth.color,
+        image: cloth.image,
+        gender: cloth.gender,
+        occasion: cloth.occasion,
+        price: cloth.price,
+        brand: cloth.brand,
+        suitableSkinTones: cloth.suitableSkinTones,
+        matchReason: matchReasons.length > 0 ? matchReasons.join(' • ') : 'Recommended for you',
+        partner: partner ? {
+          _id: partner._id,
+          name: partner.name,
+          location: partner.location || 'Location not specified',
+          phone: partner.phone || 'N/A',
+          email: partner.email
+        } : null
+      };
+    });
+
     res.status(200).json({
-      meta: { total, page, limit, pages: Math.ceil(total / limit) },
-      data: suggestions,
+      meta: { 
+        total, 
+        page, 
+        limit, 
+        pages: Math.ceil(total / limit),
+        filters: {
+          occasion: targetOccasion,
+          gender: userGender,
+          skinTone: userSkinTone,
+          userOccasions: occasionTypes
+        }
+      },
+      data: formattedSuggestions,
     });
   } catch (error) {
     console.error("Error in getSuggestions:", error);
