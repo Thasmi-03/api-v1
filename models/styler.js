@@ -8,7 +8,8 @@ const StylerSchema = new Schema(
     gender: { type: String, enum: ["male", "female", "other"], default: "other" },
     dateOfBirth: { type: Date },
     country: { type: String, trim: true },
-    skinTone: { type: String, enum: ["fair", "medium", "dark"] },
+    skinTone: { type: String, enum: ["fair", "light", "medium", "tan", "deep", "dark"] },
+    preferredStyle: { type: String, trim: true },
     role: { type: String, enum: ["styler", "admin"], default: "styler" },
   },
   { timestamps: true }

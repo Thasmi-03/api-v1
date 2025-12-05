@@ -38,6 +38,9 @@ const UserSchema = new Schema(
     phone: {
       type: String,
     },
+    profilePhoto: {
+      type: String,
+    },
   },
   { timestamps: true }
 );
