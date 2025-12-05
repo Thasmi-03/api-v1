@@ -1,26 +1,28 @@
+// routes/upload.js
 import express from "express";
-import upload from "../config/uploadLocal.js";
+import upload from "../config/uploadMemory.js";
+import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload.js";
 
 const router = express.Router();
 
-// Single file upload field name = "image"
-router.post("/", upload.single("image"), (req, res) => {
+// Single file upload field name = "image" (make sure frontend uses name "image")
+router.post("/", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: "No file uploaded" });
     }
 
-    // Construct the URL for the uploaded file
-    const imageUrl = `${req.protocol}://${req.get('host')}/api/uploads/${req.file.filename}`;
-
-    res.json({
+    // Upload buffer to Cloudinary
+    const result = await uploadBufferToCloudinary(req.file.buffer, "fitflow");
+    // result.secure_url contains the hosted image
+    return res.json({
       success: true,
-      imageUrl,
-      filename: req.file.filename,
+      imageUrl: result.secure_url,
+      public_id: result.public_id,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Upload failed" });
+    console.error("Upload error:", err);
+    return res.status(500).json({ success: false, message: "Upload failed", details: err.message });
   }
 });
 

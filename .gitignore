@@ -1,2 +1,7 @@
 node_modules
 .env
+
+# Local uploads (not used in production)
+uploads/
+config/uploadLocal.js.backup
+config/upload.js.backup
