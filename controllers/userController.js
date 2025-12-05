@@ -1,4 +1,6 @@
 import { User } from "../models/user.js";
+import { Styler } from "../models/styler.js";
+import { Partner } from "../models/partner.js";
 import mongoose from "mongoose";
 
 /**
@@ -69,7 +71,21 @@ export const getMyProfile = async (req, res) => {
     const user = await User.findById(userId).select("-password");
     if (!user) return res.status(404).json({ error: "User not found." });
 
-    res.status(200).json(user);
+    let responseData = user.toJSON();
+
+    if (user.role === 'styler') {
+        const styler = await Styler.findById(userId);
+        if (styler) {
+            responseData = { ...responseData, ...styler.toJSON() };
+        }
+    } else if (user.role === 'partner') {
+        const partner = await Partner.findById(userId);
+        if (partner) {
+            responseData = { ...responseData, ...partner.toJSON() };
+        }
+    }
+
+    res.status(200).json(responseData);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -86,6 +102,7 @@ export const updateMyProfile = async (req, res) => {
     // Prevent updating sensitive fields
     const { password, role, isApproved, _id, ...updateData } = req.body;
 
+    // 1. Update User model (common fields)
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
       new: true,
       runValidators: true,
@@ -93,8 +110,60 @@ export const updateMyProfile = async (req, res) => {
 
     if (!updatedUser) return res.status(404).json({ error: "User not found." });
 
-    res.status(200).json({ message: "Profile updated", user: updatedUser });
+    let responseData = updatedUser.toJSON();
+
+    // 2. Update Role-specific models
+    if (updatedUser.role === 'styler') {
+        const stylerUpdate = {};
+        if (updateData.skinTone) stylerUpdate.skinTone = updateData.skinTone;
+        if (updateData.preferredStyle) stylerUpdate.preferredStyle = updateData.preferredStyle;
+        
+        // Ensure name is present for upsert (required field)
+        if (!stylerUpdate.name && updatedUser.name) {
+            stylerUpdate.name = updatedUser.name;
+        }
+
+        if (Object.keys(stylerUpdate).length > 0) {
+            const updatedStyler = await Styler.findByIdAndUpdate(userId, stylerUpdate, {
+                new: true,
+                runValidators: true,
+                upsert: true, // Create if not exists
+                setDefaultsOnInsert: true
+            });
+            
+            // Merge styler data into response
+            if (updatedStyler) {
+                responseData = { ...responseData, ...updatedStyler.toJSON() };
+            }
+        }
+    } else if (updatedUser.role === 'partner') {
+        const partnerUpdate = {};
+        if (updateData.name) partnerUpdate.name = updateData.name;
+        if (updateData.phone) partnerUpdate.phone = updateData.phone;
+        if (updateData.location) partnerUpdate.location = updateData.location;
+        
+        // Ensure name is present for upsert (required field)
+        if (!partnerUpdate.name && updatedUser.name) {
+            partnerUpdate.name = updatedUser.name;
+        }
+        
+        if (Object.keys(partnerUpdate).length > 0) {
+            const updatedPartner = await Partner.findByIdAndUpdate(userId, partnerUpdate, {
+                new: true,
+                runValidators: true,
+                upsert: true, // Create if not exists
+                setDefaultsOnInsert: true
+            });
+             // Merge partner data into response
+             if (updatedPartner) {
+                responseData = { ...responseData, ...updatedPartner.toJSON() };
+            }
+        }
+    }
+
+    res.status(200).json({ message: "Profile updated", user: responseData });
   } catch (error) {
+    console.error("updateMyProfile Error:", error);
     if (error.name === "ValidationError") {
       const errors = Object.values(error.errors).map(e => e.message);
       return res.status(400).json({ error: errors.join(", ") });

@@ -100,9 +100,10 @@ export const register = async (req, res) => {
       const { fullName, phone, address } = req.body;
       const newPartner = new Partner({
         _id: savedUser._id, // Use same ID as User
+        email: email,
         name: fullName || email.split('@')[0],
         phone: phone || '',
-        address: address || '',
+        location: address || '',
       });
       await newPartner.save();
     }
@@ -310,8 +311,20 @@ export const rejectUser = async (req, res) => {
 export const getProfile = async (req, res) => {
   try {
     // User is already attached to req.user by authenticate middleware
-    const userResponse = req.user.toJSON();
+    let userResponse = req.user.toJSON();
     delete userResponse.password;
+
+    if (req.user.role === 'styler') {
+        const styler = await Styler.findById(req.user._id);
+        if (styler) {
+            userResponse = { ...userResponse, ...styler.toJSON() };
+        }
+    } else if (req.user.role === 'partner') {
+        const partner = await Partner.findById(req.user._id);
+        if (partner) {
+            userResponse = { ...userResponse, ...partner.toJSON() };
+        }
+    }
 
     res.status(200).json({
       user: userResponse,
